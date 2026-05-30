@@ -12,6 +12,19 @@
       <p id="status" class="status">確認中…</p>
       <button id="download" type="button" hidden>モデルをダウンロード</button>
       <p id="detail" class="detail"></p>
+
+      <hr />
+
+      <section class="settings">
+        <p class="settings-title">検出する項目</p>
+        <label><input type="checkbox" data-type="typo" /> 誤字</label>
+        <label><input type="checkbox" data-type="grammar" /> 文法</label>
+        <label><input type="checkbox" data-type="punctuation" /> 句読点</label>
+        <label class="span2">
+          <input type="checkbox" data-type="unnatural" /> 不自然
+          <span class="hint">誤検出が出やすいので既定オフ</span>
+        </label>
+      </section>
     </main>
     <script type="module" src="./main.ts"></script>
   </body>

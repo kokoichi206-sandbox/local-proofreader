@@ -6,27 +6,33 @@ import { OverlayRenderer } from '../src/overlay/renderer'
 import { applyCorrection } from '../src/apply/replace'
 import { promptEngine } from '../src/ai/promptClient'
 import { detectState } from '../src/ai/availability'
+import type { Correction } from '../src/state/types'
+import { DEFAULT_SETTINGS, type Settings } from '../src/settings/types'
+import { loadSettings, onSettingsChanged } from '../src/settings/store'
+import { filterByEnabledTypes } from '../src/settings/filter'
 
 interface Managed {
   target: ProofreadTarget
   watcher: InputWatcher
   renderer: OverlayRenderer
   lastText: string | null // 最後に校正したテキスト(同一なら再校正をスキップ)
+  lastCorrections: Correction[] // 生の指摘。設定変更時は再校正せずこれを type で絞り直す
   inFlight: boolean // 校正の二重起動を防ぐ
   pending: boolean // 校正中に新しい入力が来た
   seq: number // 古い非同期結果で新しい表示を上書きしないための連番
 }
 
-// Phase 4: 入力監視 → Nano 校正 → オーバーレイ波線 → ツールチップ(理由は遅延取得) → 範囲置換。
+// Phase 4 + 設定: 入力監視 → Nano 校正 → type フィルタ → 波線 → ツールチップ → 範囲置換。
 export default defineContentScript({
   matches: ['*://*/*'],
   runAt: 'document_idle',
   main() {
     let engineReady = false
     let initPromise: Promise<boolean> | null = null
+    let settings: Settings = DEFAULT_SETTINGS
+    const managed = new Map<Element, Managed>()
 
     // モデルの準備を確認する。ダウンロードは popup(ユーザー操作)側で行う前提で、
-    // ここでは availability を確認し READY のときだけ create する。
     // 非 READY のときは initPromise を残さない → popup で DL 後、再フォーカスで再判定される。
     const ensureEngine = (): Promise<boolean> => {
       if (engineReady) return Promise.resolve(true)
@@ -49,12 +55,20 @@ export default defineContentScript({
       return initPromise
     }
 
-    const managed = new Map<Element, Managed>()
+    // 生の指摘を有効 type で絞って描画する(設定変更時の再描画にも使う)。
+    const draw = (m: Managed): void => {
+      if (m.lastText === null) return
+      m.renderer.setData(
+        m.lastText,
+        filterByEnabledTypes(m.lastCorrections, settings),
+      )
+    }
 
     const proofread = async (m: Managed): Promise<void> => {
       const text = m.target.value
       if (text.trim().length === 0) {
         m.lastText = text
+        m.lastCorrections = []
         m.renderer.setData(text, [])
         return
       }
@@ -71,7 +85,8 @@ export default defineContentScript({
         // 古い結果や入力変化後の結果で上書きしない。
         if (seq === m.seq && m.target.value === text) {
           m.lastText = text
-          m.renderer.setData(text, corrections)
+          m.lastCorrections = corrections
+          draw(m)
         }
       } catch (e) {
         console.warn('[local-proofreader] 校正に失敗:', e)
@@ -84,6 +99,16 @@ export default defineContentScript({
       }
     }
 
+    // 設定を読み込み、変更を購読する。変更時は再校正せず描画だけ更新する。
+    void loadSettings().then((s) => {
+      settings = s
+      for (const m of managed.values()) draw(m)
+    })
+    onSettingsChanged((s) => {
+      settings = s
+      for (const m of managed.values()) draw(m)
+    })
+
     document.addEventListener('focusin', (e) => {
       const el = e.target
       if (!(el instanceof Element) || !isProofreadTarget(el)) return
@@ -94,7 +119,6 @@ export default defineContentScript({
         // 自動訂正はしない。ユーザーがツールチップで「適用」したときだけ置換する。
         onApply: (correction) => {
           applyCorrection(target, correction)
-          // 置換成否に関わらず再校正して表示を最新化する(置換できない=入力変化時も含む)。
           const m = managed.get(target)
           if (m) void proofread(m)
         },
@@ -111,6 +135,7 @@ export default defineContentScript({
           },
         }),
         lastText: null,
+        lastCorrections: [],
         inFlight: false,
         pending: false,
         seq: 0,
