@@ -14,6 +14,8 @@
     "zip": "wxt zip",
     "dev:overlay": "esbuild dev/overlay-test.ts --bundle --format=iife --outfile=dev/overlay-test.js",
     "compile": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "postinstall": "wxt prepare",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
@@ -29,8 +31,10 @@
     "eslint": "^9.17.0",
     "eslint-config-prettier": "^9.1.0",
     "eslint-plugin-prettier": "^5.2.1",
+    "jsdom": "29.1.1",
     "prettier": "^3.4.2",
     "typescript": "^5.7.2",
+    "vitest": "4.1.7",
     "wxt": "^0.20.6"
   }
 }
