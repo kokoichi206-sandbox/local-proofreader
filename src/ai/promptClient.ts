@@ -2,13 +2,10 @@ import type { Correction } from '../state/types'
 import type { ProofreadEngine } from './client'
 import { CORRECTION_SCHEMA, SYSTEM_PROMPT } from './schema'
 import { repairOffsets } from './normalize'
+import { INPUT_LANGUAGES, OUTPUT_LANGUAGES } from './availability'
 
 // LanguageModel.create の戻り値の型を API から導出する(ライブラリの型名に依存しない)。
 type Session = Awaited<ReturnType<typeof LanguageModel.create>>
-
-interface NanoResponse {
-  corrections?: Correction[]
-}
 
 const PROMPT_TIMEOUT_MS = 15000
 
@@ -16,23 +13,34 @@ const PROMPT_TIMEOUT_MS = 15000
 class PromptClient implements ProofreadEngine {
   readonly name = 'prompt-api'
   private session: Session | null = null
+  // create の同時呼び出しで複数セッションを生成しないためのガード。
+  private creating: Promise<Session> | null = null
 
   async ensureReady(onProgress?: (loaded: number) => void): Promise<void> {
     if (this.session) return
     if (!('LanguageModel' in self)) {
       throw new Error('LanguageModel API がこのブラウザに存在しません')
     }
-    this.session = await LanguageModel.create({
-      expectedInputs: [{ type: 'text', languages: ['ja', 'en'] }],
-      expectedOutputs: [{ type: 'text', languages: ['ja'] }],
-      initialPrompts: [{ role: 'system', content: SYSTEM_PROMPT }],
-      monitor(m) {
-        m.addEventListener('downloadprogress', (e) => {
-          const { loaded } = e as ProgressEvent
-          onProgress?.(loaded)
-        })
-      },
-    })
+    if (!this.creating) {
+      this.creating = LanguageModel.create({
+        expectedInputs: [{ type: 'text', languages: INPUT_LANGUAGES }],
+        expectedOutputs: [{ type: 'text', languages: OUTPUT_LANGUAGES }],
+        initialPrompts: [{ role: 'system', content: SYSTEM_PROMPT }],
+        monitor(m) {
+          m.addEventListener('downloadprogress', (e) => {
+            const { loaded } = e as ProgressEvent
+            onProgress?.(loaded)
+          })
+        },
+      })
+    }
+    try {
+      this.session = await this.creating
+    } catch (e) {
+      // 失敗時は再試行できるよう状態を戻す(中途半端な ready 状態にしない)。
+      this.creating = null
+      throw e
+    }
   }
 
   async proofread(text: string): Promise<Correction[]> {
@@ -43,23 +51,29 @@ class PromptClient implements ProofreadEngine {
       throw new Error('proofread の前に ensureReady を呼んでください')
     }
 
-    let parsed: NanoResponse
+    // runStructured の例外(timeout/abort/API)は try の外なのでそのまま伝播する。
+    // 「JSON 破損」と「推論失敗」を混同しない(根本原因を握りつぶさない)。
+    const raw = await this.runStructured(session, text)
+    let parsed: unknown
     try {
-      parsed = JSON.parse(
-        await this.runStructured(session, text),
-      ) as NanoResponse
+      parsed = JSON.parse(raw)
     } catch {
-      // 構造化出力がまれに壊れる(Phase 0 で確認)。1回だけ再試行する。
+      // JSON 破損のみ、Phase 0 で確認した稀な構造化出力の崩れとして1回だけ再試行する。
+      const retryRaw = await this.runStructured(session, text)
       try {
-        parsed = JSON.parse(
-          await this.runStructured(session, text),
-        ) as NanoResponse
+        parsed = JSON.parse(retryRaw)
       } catch (e) {
         throw new Error(`Nano 応答の JSON 解析に2回失敗: ${String(e)}`)
       }
     }
-    const list = Array.isArray(parsed.corrections) ? parsed.corrections : []
-    return repairOffsets(text, list)
+
+    const corrections =
+      typeof parsed === 'object' &&
+      parsed !== null &&
+      Array.isArray((parsed as { corrections?: unknown }).corrections)
+        ? (parsed as { corrections: unknown[] }).corrections
+        : []
+    return repairOffsets(text, corrections)
   }
 
   // 理由はツールチップを開いたときだけ生成する(常時パスに自由文を混ぜると JSON が壊れやすいため)。

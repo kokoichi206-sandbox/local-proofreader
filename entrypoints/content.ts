@@ -7,6 +7,16 @@ import { applyCorrection } from '../src/apply/replace'
 import { promptEngine } from '../src/ai/promptClient'
 import { detectState } from '../src/ai/availability'
 
+interface Managed {
+  target: ProofreadTarget
+  watcher: InputWatcher
+  renderer: OverlayRenderer
+  lastText: string | null // 最後に校正したテキスト(同一なら再校正をスキップ)
+  inFlight: boolean // 校正の二重起動を防ぐ
+  pending: boolean // 校正中に新しい入力が来た
+  seq: number // 古い非同期結果で新しい表示を上書きしないための連番
+}
+
 // Phase 4: 入力監視 → Nano 校正 → オーバーレイ波線 → ツールチップ(理由は遅延取得) → 範囲置換。
 export default defineContentScript({
   matches: ['*://*/*'],
@@ -15,15 +25,15 @@ export default defineContentScript({
     let engineReady = false
     let initPromise: Promise<boolean> | null = null
 
-    // モデルの準備を一度だけ行う。ダウンロードは popup(ユーザー操作)側で行う前提で、
+    // モデルの準備を確認する。ダウンロードは popup(ユーザー操作)側で行う前提で、
     // ここでは availability を確認し READY のときだけ create する。
+    // 非 READY のときは initPromise を残さない → popup で DL 後、再フォーカスで再判定される。
     const ensureEngine = (): Promise<boolean> => {
       if (engineReady) return Promise.resolve(true)
       if (!initPromise) {
         initPromise = (async () => {
           const state = await detectState()
           if (state.kind !== 'READY') {
-            // 暗黙に無効化せず、状態を明示する(popup で DL/確認できる)。
             console.warn(
               `[local-proofreader] Nano 未準備 (${state.kind})。popup でモデルの状態を確認してください。`,
             )
@@ -32,33 +42,45 @@ export default defineContentScript({
           await promptEngine.ensureReady()
           engineReady = true
           return true
-        })()
+        })().finally(() => {
+          if (!engineReady) initPromise = null
+        })
       }
       return initPromise
     }
 
-    const managed = new WeakMap<
-      Element,
-      { watcher: InputWatcher; renderer: OverlayRenderer }
-    >()
+    const managed = new Map<Element, Managed>()
 
-    const refresh = async (
-      target: ProofreadTarget,
-      renderer: OverlayRenderer,
-    ): Promise<void> => {
-      const text = target.value
+    const proofread = async (m: Managed): Promise<void> => {
+      const text = m.target.value
       if (text.trim().length === 0) {
-        renderer.setData(text, [])
+        m.lastText = text
+        m.renderer.setData(text, [])
         return
       }
+      if (text === m.lastText) return // 同一テキストは再校正しない
       if (!(await ensureEngine())) return
+      if (m.inFlight) {
+        m.pending = true // 校正中なら完了後に最新で再実行
+        return
+      }
+      m.inFlight = true
+      const seq = ++m.seq
       try {
         const corrections = await promptEngine.proofread(text)
-        // stale ガード: 校正中に入力が変わっていたら結果を捨てる(古いオフセットで下線を引かない)。
-        if (target.value !== text) return
-        renderer.setData(text, corrections)
+        // 古い結果や入力変化後の結果で上書きしない。
+        if (seq === m.seq && m.target.value === text) {
+          m.lastText = text
+          m.renderer.setData(text, corrections)
+        }
       } catch (e) {
         console.warn('[local-proofreader] 校正に失敗:', e)
+      } finally {
+        m.inFlight = false
+        if (m.pending) {
+          m.pending = false
+          void proofread(m)
+        }
       }
     }
 
@@ -72,19 +94,47 @@ export default defineContentScript({
         // 自動訂正はしない。ユーザーがツールチップで「適用」したときだけ置換する。
         onApply: (correction) => {
           applyCorrection(target, correction)
-          void refresh(target, renderer)
+          // 置換成否に関わらず再校正して表示を最新化する(置換できない=入力変化時も含む)。
+          const m = managed.get(target)
+          if (m) void proofread(m)
         },
-        // 理由はツールチップを開いたときに生成する。
         onRequestReason: (correction) =>
           promptEngine.explain(target.value, correction),
       })
-      const watcher = new InputWatcher(target, {
-        onStableText: () => void refresh(target, renderer),
-      })
-      managed.set(el, { watcher, renderer })
+      const m: Managed = {
+        target,
+        renderer,
+        watcher: new InputWatcher(target, {
+          onStableText: () => {
+            const entry = managed.get(target)
+            if (entry) void proofread(entry)
+          },
+        }),
+        lastText: null,
+        inFlight: false,
+        pending: false,
+        seq: 0,
+      }
+      managed.set(el, m)
 
       // focus だけでは watcher は発火しないので、既存テキストを初回校正する。
-      void refresh(target, renderer)
+      void proofread(m)
+    })
+
+    // 要素が DOM から外れたら(SPA の画面遷移など)関連リソースを破棄する。
+    // WeakMap では解放タイミングを制御できないため Map + 切断検知で明示的に dispose する。
+    const cleanup = new MutationObserver(() => {
+      for (const [el, m] of managed) {
+        if (!el.isConnected) {
+          m.watcher.dispose()
+          m.renderer.dispose()
+          managed.delete(el)
+        }
+      }
+    })
+    cleanup.observe(document.documentElement, {
+      childList: true,
+      subtree: true,
     })
   },
 })
