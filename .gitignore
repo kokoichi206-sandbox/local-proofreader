@@ -1,0 +1,12 @@
+node_modules
+# pnpm が ~ を展開できない環境で cwd 相対に誤生成する store の残骸(プロジェクト外)
+/~
+.output
+.wxt
+dist
+stats.html
+*.log
+dev/overlay-test.js
+.DS_Store
+.env
+.env.*

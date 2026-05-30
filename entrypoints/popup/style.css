@@ -1,0 +1,48 @@
+:root {
+  color-scheme: light dark;
+  font-family:
+    system-ui,
+    -apple-system,
+    'Hiragino Kaku Gothic ProN',
+    'Noto Sans JP',
+    sans-serif;
+}
+
+body {
+  margin: 0;
+  min-width: 280px;
+}
+
+#app {
+  padding: 16px;
+}
+
+h1 {
+  font-size: 14px;
+  margin: 0 0 12px;
+}
+
+.status {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0 0 8px;
+}
+
+.detail {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #666;
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+}
+
+button {
+  font-size: 13px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+button[disabled] {
+  cursor: default;
+  opacity: 0.6;
+}
