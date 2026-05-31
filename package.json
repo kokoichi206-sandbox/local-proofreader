@@ -3,6 +3,7 @@
   "version": "0.0.1",
   "description": "完全ローカルの Gemini Nano による日本語校正アシスタント Chrome 拡張",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "packageManager": "pnpm@9.12.2",
   "engines": {

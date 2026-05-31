@@ -77,3 +77,7 @@ handled by Chrome itself.
 ## For developers
 
 See [CLAUDE.md](./CLAUDE.md) for setup, commands, and architecture notes.
+
+## License
+
+[MIT](./LICENSE) © 2026 kokoichi206

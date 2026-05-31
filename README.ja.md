@@ -74,3 +74,7 @@ _[English](./README.md) | [日本語](./README.ja.md)_
 ## 開発者向け
 
 セットアップ・コマンド・設計メモは [CLAUDE.md](./CLAUDE.md) を参照してください。
+
+## ライセンス
+
+[MIT](./LICENSE) © 2026 kokoichi206
