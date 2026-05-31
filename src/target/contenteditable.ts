@@ -7,12 +7,16 @@ import type {
 import { textWithOffsets } from '../input/plainText'
 import { ContentEditableWatcher } from '../input/contenteditableWatcher'
 import { ContentEditableRenderer } from '../overlay/contenteditableRenderer'
+import {
+  isInsertTextSupported,
+  applyCorrectionToContentEditable,
+} from '../apply/contenteditableReplace'
 
 // contenteditable(Slack/Gmail 等)向け Target。
-// 描画は CSS Highlight(読み取り専用)。適用(置換)は別フェーズ(D)で execCommand 経路を実装するため、
-// 現状は canApply=false 固定 = ツールチップの「適用」は無効表示にする(暗黙に無効化しない)。
+// 描画は CSS Highlight(DOM 非改変)。適用は execCommand('insertText') 経由で、
+// 対応可否(canApply)は queryCommandSupported で判定する。非対応の欄は「適用」を無効表示にする。
 export class ContentEditableTarget implements EditableTarget {
-  readonly capabilities: TargetCapabilities = { canApply: false }
+  readonly capabilities: TargetCapabilities
   private readonly renderer: ContentEditableRenderer
   private readonly watcher: ContentEditableWatcher
 
@@ -20,10 +24,11 @@ export class ContentEditableTarget implements EditableTarget {
     readonly element: HTMLElement,
     handlers: TargetHandlers,
   ) {
+    this.capabilities = { canApply: isInsertTextSupported() }
     this.renderer = new ContentEditableRenderer(element, {
       onApply: handlers.onApply,
       onRequestReason: handlers.onRequestReason,
-      canApply: false,
+      canApply: this.capabilities.canApply,
     })
     this.watcher = new ContentEditableWatcher(element, {
       onStableText: () => handlers.onStableText(),
@@ -38,8 +43,9 @@ export class ContentEditableTarget implements EditableTarget {
     this.renderer.setData(text, corrections)
   }
 
-  apply(): boolean {
-    return false // canApply=false。フェーズ D で execCommand('insertText') 経路を実装する。
+  apply(correction: Correction): boolean {
+    if (!this.capabilities.canApply) return false
+    return applyCorrectionToContentEditable(this.element, correction)
   }
 
   dispose(): void {
