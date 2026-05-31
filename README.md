@@ -1,58 +1,79 @@
-# local-proofreader
+# Local Proofreader
 
-完全ローカルの **Gemini Nano** で、Web 上の入力欄に打った日本語の誤字脱字・不自然さを検出し、
-波線 + ツールチップで「直す/直さない」をユーザーに委ねる Chrome 拡張。クラウドに一切送らない、
-プライバシー重視の日本語特化校正アシスタント。
+_[English](./README.md) | [日本語](./README.ja.md)_
 
-## 方針(確定事項)
+> A privacy-first Japanese proofreading assistant for Chrome. It checks the Japanese you
+> type in web input fields — **entirely on your device** using Chrome's built-in Gemini Nano.
+> Nothing is ever sent to the cloud.
 
-- **自動訂正はしない**。波線で提案し、クリックされて初めて該当範囲だけ置換する(Grammarly 方式)。
-- **暗黙の fallback 禁止**。Nano 未対応/未取得時は黙って無効化せず、状態を明示する。
-- **誤検知 > 見逃し**。高確信の指摘だけを出す。
-- v1 対象は `<textarea>` と単純な `<input type=text>` のみ。contenteditable / Google Docs は対象外。
+<!-- デモ動画/GIF をここに置きます: docs/demo.gif -->
 
-## 技術スタック
+![demo](docs/demo.gif)
 
-- ビルド: [WXT](https://wxt.dev)(Vite ベース、MV3)
-- 言語: TypeScript(strict)
-- AI: Chrome 組み込み AI。当面 **Prompt API(LanguageModel)** を共通インターフェース越しに利用し、
-  Proofreader API が日本語 stable になったら同インターフェースの別実装へ差し替える。
+## What it does
 
-> **重要(環境)**: 日本語の Proofreader API は **Chrome 149+** が必要。手元が **Chrome 148** の場合は
-> Prompt API を `chrome://flags/#prompt-api-for-gemini-nano` = **"Enabled multilingual"** で使う。
-> 詳細・要件は [`phase0/README.md`](./phase0/README.md) を参照。
+As you type, it underlines likely mistakes — typos, grammar, punctuation, and awkward
+phrasing — shows a suggestion and the reason when you hover, and lets you fix just that spot
+with one click. It never rewrites your text on its own.
 
-## セットアップ
+## Features
 
-```sh
-pnpm install        # postinstall で wxt prepare が走る
-pnpm dev            # 開発(Chrome を起動して拡張をロード)
-pnpm build          # 本番ビルド(.output/ に出力)
-pnpm compile        # 型チェック(tsc --noEmit)
-pnpm lint           # ESLint
-pnpm format:check   # Prettier チェック
-```
+- 🔒 **100% on-device** — your text never leaves your computer (no cloud, no sign-in)
+- 〰️ **Wavy underlines** on likely mistakes, in real time as you type
+- 💬 **Hover or click** an underline → suggestion + the reason → **Apply** fixes only that span
+- ✋ **Never auto-corrects** — you decide what to change
+- 🧩 Works in plain text boxes (`textarea` / `input`) **and rich editors like Slack and Gmail**
+- ⚙️ **Choose what to detect** (typo / grammar / punctuation / awkward) from the popup.
+  "Awkward phrasing" is **off by default** to avoid over-correction.
 
-## 進め方(フェーズ)
+## Requirements
 
-| Phase | 内容                                                 | Nano 実機      |
-| ----- | ---------------------------------------------------- | -------------- |
-| **0** | コンソールで Nano 日本語校正精度を検証(go/no-go)     | 要             |
-| 1     | WXT 足場(background / content / popup)               | 不要           |
-| 2     | 入力検出 + IME/デバウンス監視                        | 不要           |
-| 3     | オーバーレイ mirror 描画(波線・座標・スクロール同期) | 不要(モックで) |
-| 4     | AI 統合 + availability 状態機械                      | 要             |
-| 5     | 範囲置換 + キャッシュ + 高確信フィルタ               | 要             |
+- **Chrome 149+** (Japanese works out of the box), or Chrome 148 with a flag (see Setup)
+- Desktop only: macOS 13+, Windows 10/11, or Linux (no Android/iOS)
+- About **22 GB free disk** for the model, and a GPU with **>4 GB VRAM** or **16 GB RAM + 4 CPU cores**
+- The Gemini Nano model downloads once (a few GB) on first use
 
-**現状**: Phase 1/2 まで実装済み。Phase 0(`phase0/`)を実機で走らせ、精度を確認してから Phase 3 以降へ進む。
+## Setup
 
-## ディレクトリ
+1. **(Chrome 148 only) Enable Japanese**
+   - `chrome://flags/#optimization-guide-on-device-model` → **Enabled**
+   - `chrome://flags/#prompt-api-for-gemini-nano` → **Enabled multilingual**
+   - Restart Chrome
+2. **Build and load the extension**
+   ```sh
+   pnpm install
+   pnpm build
+   ```
+   Then open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked**, and
+   select the `.output/chrome-mv3` folder.
+3. **Confirm it's ready** — open the extension popup. When it shows **"✓ 校正が利用可能"** you're set.
+   If the model isn't downloaded yet, click the download button (one-time, a few GB).
 
-```
-entrypoints/        WXT エントリ(background / content / popup)
-src/
-  ai/               AI クライアント抽象 + Prompt 実装 + 状態検出 + 正規化 + JSON Schema
-  input/            校正対象の検出 + IME/デバウンス監視
-  state/            状態 enum / 型定義
-phase0/             Nano 精度検証ハーネス(コンソール用 + 手順)
-```
+## How to use
+
+1. Click into any text box (a comment field, a Slack/Gmail message, …) and type Japanese.
+2. A red wavy underline appears under likely mistakes.
+3. Hover or click the underline → a tooltip shows the suggestion and why.
+4. Click **適用 (Apply)** to replace just that span.
+   In some editors one-click apply isn't available yet — the tooltip says so, and you can fix it manually.
+5. Open the popup to turn detection types on/off.
+
+<!-- ポップアップのスクリーンショットをここに: docs/popup.png -->
+
+![popup](docs/popup.png)
+
+## Privacy
+
+Everything runs locally through Chrome's built-in Gemini Nano. Your text is never sent to any
+server and no account is required. The only network activity is the one-time model download,
+handled by Chrome itself.
+
+## Supported & not supported
+
+- **Supported:** plain `textarea` / `input[type=text]`, and many `contenteditable` editors (Slack, Gmail, …).
+- **Apply may be unavailable** in some rich editors — detection and underlines still work; fix manually.
+- **Not handled:** password / search / email fields (skipped on purpose), code editors, and Google Docs (canvas-rendered).
+
+## For developers
+
+See [CLAUDE.md](./CLAUDE.md) for setup, commands, and architecture notes.
