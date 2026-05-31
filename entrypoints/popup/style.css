@@ -46,3 +46,28 @@ button[disabled] {
   cursor: default;
   opacity: 0.6;
 }
+
+hr {
+  border: none;
+  border-top: 1px solid rgba(128, 128, 128, 0.25);
+  margin: 14px 0;
+}
+
+.settings-title {
+  font-size: 12px;
+  font-weight: 600;
+  margin: 0 0 8px;
+}
+
+.settings label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  margin-bottom: 5px;
+}
+
+.settings .hint {
+  color: #888;
+  font-size: 11px;
+}

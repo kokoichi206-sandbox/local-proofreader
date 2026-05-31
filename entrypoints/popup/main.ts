@@ -1,6 +1,9 @@
 import { detectState } from '../../src/ai/availability'
 import { promptEngine } from '../../src/ai/promptClient'
 import type { EngineState } from '../../src/state/types'
+import type { CorrectionType } from '../../src/state/types'
+import { loadSettings, saveSettings } from '../../src/settings/store'
+import type { Settings } from '../../src/settings/types'
 
 const statusEl = document.querySelector<HTMLParagraphElement>('#status')
 const detailEl = document.querySelector<HTMLParagraphElement>('#detail')
@@ -59,3 +62,30 @@ downloadBtn.addEventListener('click', async () => {
 })
 
 void detectState().then(render)
+
+// --- 設定(検出する type の ON/OFF) ---
+const typeCheckboxes = Array.from(
+  document.querySelectorAll<HTMLInputElement>(
+    'input[type="checkbox"][data-type]',
+  ),
+)
+
+function currentSettings(): Settings {
+  const enabledTypes = {} as Settings['enabledTypes']
+  for (const box of typeCheckboxes) {
+    enabledTypes[box.dataset.type as CorrectionType] = box.checked
+  }
+  return { enabledTypes }
+}
+
+void loadSettings().then((settings) => {
+  for (const box of typeCheckboxes) {
+    box.checked = settings.enabledTypes[box.dataset.type as CorrectionType]
+  }
+})
+
+for (const box of typeCheckboxes) {
+  box.addEventListener('change', () => {
+    void saveSettings(currentSettings())
+  })
+}
